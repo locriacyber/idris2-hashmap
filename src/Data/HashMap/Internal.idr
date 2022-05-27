@@ -2,47 +2,21 @@
 module Data.HashMap.Internal
 
 import Data.Array16
+import Data.Fin
+import Data.Bits
 import public Data.Hashable
 
 infix 6 `eq`
 
-infixr 5 .&.
-infixr 4 >>
-
-||| Binary and.
-%inline
-(.&.) : Bits64 -> Bits64 -> Bits64
-(.&.) = prim__and_Bits64
-
-||| Right shift.
-%inline
-(>>) : Bits64 -> Bits64 -> Bits64
-(>>) = prim__shr_Bits64
-
 ||| Mask for 4 bits.
 export
-data BitMask
-    = BM0
-    | BM1
-    | BM2
-    | BM3
-    | BM4
-    | BM5
-    | BM6
-    | BM7
-    | BM8
-    | BM9
-    | BMa
-    | BMb
-    | BMc
-    | BMd
-    | BMe
-    | BMf
+BitMask : Type
+BitMask = Fin 0x10
 
 ||| Initial bit mask.
 export
 bitMask0 : BitMask
-bitMask0 = BM0
+bitMask0 = 0
 
 public export
 Hash : Type
@@ -50,49 +24,18 @@ Hash = Bits64
 
 ||| Mask 4 bits.
 bitMask : BitMask -> Hash -> Bits64
-bitMask mask h = case mask of
-    BM0 => 0x000000000000000f .&. h >> 0x00
-    BM1 => 0x00000000000000f0 .&. h >> 0x04
-    BM2 => 0x0000000000000f00 .&. h >> 0x08
-    BM3 => 0x000000000000f000 .&. h >> 0x0c
-    BM4 => 0x00000000000f0000 .&. h >> 0x10
-    BM5 => 0x0000000000f00000 .&. h >> 0x14
-    BM6 => 0x000000000f000000 .&. h >> 0x18
-    BM7 => 0x00000000f0000000 .&. h >> 0x1c
-    BM8 => 0x0000000f00000000 .&. h >> 0x20
-    BM9 => 0x000000f000000000 .&. h >> 0x24
-    BMa => 0x00000f0000000000 .&. h >> 0x28
-    BMb => 0x0000f00000000000 .&. h >> 0x2c
-    BMc => 0x000f000000000000 .&. h >> 0x30
-    BMd => 0x00f0000000000000 .&. h >> 0x34
-    BMe => 0x0f00000000000000 .&. h >> 0x38
-    BMf => 0xf000000000000000 .&. h >> 0x3c
+bitMask mask h =        
+    let mask_shift = weakenN 0x30 (mask * 4) in
+    ((0x000000000000000f `shiftL` mask_shift) .&. h) `shiftR` mask_shift
 
 ||| Get the `BitMask` for the next 4 bits.
 nextBitMask : BitMask -> BitMask
-nextBitMask = \case
-    BM0 => BM1
-    BM1 => BM2
-    BM2 => BM3
-    BM3 => BM4
-    BM4 => BM5
-    BM5 => BM6
-    BM6 => BM7
-    BM7 => BM8
-    BM8 => BM9
-    BM9 => BMa
-    BMa => BMb
-    BMb => BMc
-    BMc => BMd
-    BMd => BMe
-    BMe => BMf
-    BMf => BM0
+nextBitMask x = x + 1
 
 ||| Is this the last 4 bits?
 isLastBM : BitMask -> Bool
-isLastBM = \case
-    BMf => True
-    _ => False
+isLastBM 0xf = True
+isLastBM _   = False
 
 public export
 Salt : Type
@@ -157,8 +100,8 @@ mutual
         let s1 = nextSalt s0
             h0 = hws s1 k0
             h1 = hws s1 k1
-            m0 = insert eq hws s1 BM0 h0 k0 v0
-                $ insert eq hws s1 BM0 h1 k1 v1
+            m0 = insert eq hws s1 bitMask0 h0 k0 v0
+                $ insert eq hws s1 bitMask0 h1 k1 v1
                 Empty
         in Collision h s1 m0
 
@@ -174,24 +117,24 @@ mutual
         v ->
         HashArrayMapTrie k v ->
         HashArrayMapTrie k v
-    insert eq hws s0 bm0 h0 k0 v0 m0 = case m0 of
+    insert eq hws s0 bitMask0 h0 k0 v0 m0 = case m0 of
         Empty => Leaf h0 k0 v0
         Leaf h1 k1 v1 => if h0 /= h1
-            then node2 bm0 h0 k0 v0 h1 k1 v1
+            then node2 bitMask0 h0 k0 v0 h1 k1 v1
             else if k0 `eq` k1
                 then Leaf h0 k0 v0
                 else collision2 eq hws s0 h0 k0 v0 k1 v1
         Collision h1 s1 m1 => if h0 == h1
             then Collision h1 s1
-                $ insert eq hws s1 BM0 (hws s1 k0) k0 v0 m1
+                $ insert eq hws s1 bitMask0 (hws s1 k0) k0 v0 m1
             else -- hashes are different so it can't be the last bit mask
                 Node $
-                update (bitMask bm0 h0) (insert eq hws s0 (nextBitMask bm0) h0 k0 v0) $
-                write (bitMask bm0 h1) m0 $
+                update (bitMask bitMask0 h0) (insert eq hws s0 (nextBitMask bitMask0) h0 k0 v0) $
+                write (bitMask bitMask0 h1) m0 $
                 new Empty
         Node ar =>
-            Node $ update (bitMask bm0 h0)
-            (insert eq hws s0 (nextBitMask bm0) h0 k0 v0) ar
+            Node $ update (bitMask bitMask0 h0)
+            (insert eq hws s0 (nextBitMask bitMask0) h0 k0 v0) ar
 
 ||| Delete a key and value from a HAMT.
 export
@@ -202,16 +145,16 @@ delete :
     Hash -> k ->
     HashArrayMapTrie k v ->
     HashArrayMapTrie k v
-delete eq hws bm0 h0 k0 m0 = case m0 of
+delete eq hws bitMask0 h0 k0 m0 = case m0 of
     Empty => Empty
     Leaf h1 k1 v1 => if h0 == h1 && k0 `eq` k1
         then Empty
         else Leaf h1 k1 v1
     Collision h1 s1 m1 => if h0 == h1
         then Collision h1 s1
-            $ delete eq hws BM0 (hws s1 k0) k0 m1
+            $ delete eq hws bitMask0 (hws s1 k0) k0 m1
         else m0
-    Node ar => Node $ update (bitMask bm0 h0) (delete eq hws (nextBitMask bm0) h0 k0) ar
+    Node ar => Node $ update (bitMask bitMask0 h0) (delete eq hws (nextBitMask bitMask0) h0 k0) ar
 
 ||| Lookup a value at a key in a HAMT.
 export
@@ -222,12 +165,12 @@ lookup :
     Hash -> k ->
     HashArrayMapTrie k v ->
     Maybe v
-lookup eq hws bm0 h0 k0 m0 = case m0 of
+lookup eq hws bitMask0 h0 k0 m0 = case m0 of
     Empty => Nothing
     Leaf h1 k1 v => justWhen (h0 == h1 && k0 `eq` k1) v
     Collision h1 s m1 => joinWhen (h0 == h1)
-        $ lookup eq hws BM0 (hws s k0) k0 m1
-    Node ar => lookup eq hws (nextBitMask bm0) h0 k0 $ index (bitMask bm0 h0) ar
+        $ lookup eq hws bitMask0 (hws s k0) k0 m1
+    Node ar => lookup eq hws (nextBitMask bitMask0) h0 k0 $ index (bitMask bitMask0 h0) ar
 
 ||| Fold a HAMT with the key and value.
 ||| Note: this is based on the order of the hash not the key.
